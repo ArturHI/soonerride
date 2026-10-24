@@ -87,7 +87,7 @@ export default function Welcome() {
             <div className="rounded-[22px] bg-surface p-4 ring-1 ring-line/70">
               <div className="mb-3 flex justify-between text-[13px] font-semibold text-ink-2">
                 <span>Saturday · 8:00 AM</span>
-                <span className="text-ink">$15 /seat</span>
+                <span className="text-ink">$5 gas share</span>
               </div>
               <Route from="Norman" fromDetail="Lloyd Noble Center" to="Dallas" toDetail="AT&T Stadium" compact />
             </div>

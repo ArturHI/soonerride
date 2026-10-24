@@ -80,3 +80,24 @@ begin
     end if;
   end loop;
 end $$;
+
+-- v2: gas share pricing, completed rides, thank-you tips. Additive and safe to re-run.
+alter table users add column if not exists venmo text;
+alter table users add column if not exists cashapp text;
+alter table users add column if not exists zelle text;
+
+alter table rides add column if not exists distance_miles int;
+alter table rides add column if not exists extra_miles int;
+alter table rides add column if not exists stops_note text;
+alter table rides add column if not exists price_reason text;
+alter table rides add column if not exists status text not null default 'open';
+alter table rides add column if not exists completed_at timestamptz;
+
+alter table seat_requests add column if not exists rating int check (rating between 1 and 5);
+alter table seat_requests add column if not exists thanks_note text;
+alter table seat_requests add column if not exists tip_amount int;
+alter table seat_requests add column if not exists tip_method text check (tip_method in ('venmo', 'cashapp', 'zelle'));
+alter table seat_requests add column if not exists feedback_at timestamptz;
+
+-- Make the API see the new columns right away.
+notify pgrst, 'reload schema';

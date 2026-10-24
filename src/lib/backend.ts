@@ -65,7 +65,12 @@ const toSnake = (k: string) => k.replace(/[A-Z]/g, (c) => "_" + c.toLowerCase())
 const toCamel = (k: string) => k.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
 
 function rowOut(obj: object) {
-  return Object.fromEntries(Object.entries(obj).map(([k, v]) => [toSnake(k), v ?? null]));
+  // Unset fields are left out so the database keeps its defaults (e.g. a ride's "open" status).
+  return Object.fromEntries(
+    Object.entries(obj)
+      .filter(([, v]) => v !== undefined)
+      .map(([k, v]) => [toSnake(k), v]),
+  );
 }
 
 function rowIn(obj: Record<string, unknown>) {

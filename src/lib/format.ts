@@ -54,20 +54,44 @@ export function todayYMD() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-// Rough drive times from Norman, used for arrival estimates.
-const DRIVE_MIN: [RegExp, number][] = [
-  [/okc|oklahoma city|will rogers/i, 35],
-  [/dfw/i, 190],
-  [/dallas|arlington|fort worth/i, 185],
-  [/tulsa/i, 130],
-  [/austin/i, 360],
-  [/houston/i, 420],
-  [/stillwater/i, 85],
-  [/wichita/i, 200],
+// Approximate one-way road miles from Norman for common destinations.
+export const DESTINATIONS: { name: string; match: RegExp; miles: number }[] = [
+  { name: "OKC Airport", match: /okc airport|will rogers/i, miles: 25 },
+  { name: "Oklahoma City", match: /okc|oklahoma city/i, miles: 20 },
+  { name: "Lawton", match: /lawton/i, miles: 65 },
+  { name: "Ardmore", match: /ardmore/i, miles: 75 },
+  { name: "Stillwater", match: /stillwater/i, miles: 85 },
+  { name: "Tulsa", match: /tulsa/i, miles: 130 },
+  { name: "DFW Airport", match: /dfw/i, miles: 185 },
+  { name: "Dallas", match: /dallas|arlington/i, miles: 190 },
+  { name: "Fort Worth", match: /fort worth/i, miles: 190 },
+  { name: "Wichita", match: /wichita/i, miles: 180 },
+  { name: "Kansas City", match: /kansas city/i, miles: 360 },
+  { name: "Little Rock", match: /little rock/i, miles: 350 },
+  { name: "Austin", match: /austin/i, miles: 385 },
+  { name: "Houston", match: /houston/i, miles: 430 },
+  { name: "San Antonio", match: /san antonio/i, miles: 460 },
 ];
 
-export function driveMinutes(to: string) {
-  return DRIVE_MIN.find(([re]) => re.test(to))?.[1] ?? 120;
+export function milesTo(to: string): number | undefined {
+  return DESTINATIONS.find((d) => d.match.test(to))?.miles;
+}
+
+/** Trips at least this long may ask riders for a gas share. Shorter rides are always free. */
+export const LONG_TRIP_MILES = 100;
+const GAS_PRICE = 3.1; // $/gallon
+const MPG = 28;
+
+/** Suggested gas share per seat: fuel cost split evenly between the driver and every seat. */
+export function gasEstimate(miles: number, seats: number) {
+  return Math.max(1, Math.round(((miles / MPG) * GAS_PRICE) / (seats + 1)));
+}
+
+/** Prices this far above the estimate are labeled for riders and need a reason. */
+export const ABOVE_ESTIMATE = 1.25;
+
+export function driveMinutes(miles: number) {
+  return Math.round(miles * 0.95 + 5);
 }
 
 export function duration(min: number) {
@@ -76,6 +100,6 @@ export function duration(min: number) {
   return h ? (m ? `${h} hr ${m} min` : `${h} hr`) : `${m} min`;
 }
 
-export function arrival(iso: string, to: string) {
-  return new Date(new Date(iso).getTime() + driveMinutes(to) * 60 * 1000).toISOString();
+export function arrival(iso: string, miles: number) {
+  return new Date(new Date(iso).getTime() + driveMinutes(miles) * 60 * 1000).toISOString();
 }

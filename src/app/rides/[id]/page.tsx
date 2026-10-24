@@ -2,14 +2,15 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
-import { CheckCircle2, ChevronLeft, ChevronRight, Clock, UsersRound } from "lucide-react";
-import { cancelRequest, getMe, getRide, requestSeat, respondToRequest, useQuery } from "@/lib/data";
-import { arrival, driveMinutes, duration, firstName, price, timeLabel, when } from "@/lib/format";
+import { useEffect, useState } from "react";
+import { CheckCircle2, ChevronLeft, ChevronRight, Clock, Flag, HeartHandshake, MapPin, UsersRound } from "lucide-react";
+import { cancelRequest, completeRide, getMe, getRide, requestSeat, respondToRequest, useQuery } from "@/lib/data";
+import { arrival, driveMinutes, duration, firstName, LONG_TRIP_MILES, price, timeLabel, when } from "@/lib/format";
 import { toast } from "@/lib/toast";
 import { ActionBar, Avatar, Button, Card, Empty, LinkButton, cx } from "@/components/ui";
 import { DriverCard, Route, SeatDots, Timeline } from "@/components/ride";
 import { BottomSheet, RouteMap } from "@/components/map";
+import { ThanksSheet } from "@/components/thanks";
 import type { RideDetail, User } from "@/lib/types";
 
 export default function RidePage() {
@@ -57,16 +58,36 @@ function TripSummary({ ride }: { ride: RideDetail }) {
     <>
       <p className="text-[24px] font-bold tracking-tight">{when(ride.departAt)}</p>
       <p className="mt-0.5 text-[14px] text-ink-2">
-        Arrive about {timeLabel(new Date(arrival(ride.departAt, ride.to)))} · {duration(driveMinutes(ride.to))} drive
+        {ride.completed
+          ? "Trip complete"
+          : `Arrive about ${timeLabel(new Date(arrival(ride.departAt, ride.miles)))} · ${duration(driveMinutes(ride.miles))} · ${ride.miles} mi`}
       </p>
       <div className="mt-5">
         <Route from={ride.from} fromDetail={ride.fromDetail} to={ride.to} toDetail={ride.toDetail} />
       </div>
+      {!!ride.extraMiles && (
+        <p className="mt-3 flex items-center gap-2 text-[14px] text-ink-2">
+          <MapPin size={15} className="shrink-0" />
+          Planned stop{ride.stopsNote ? `: ${ride.stopsNote}` : ""} (+{ride.extraMiles} mi)
+        </p>
+      )}
       <div className="mt-5 grid grid-cols-2 gap-3">
         <Stat
-          label="Cost per seat"
-          value={price(ride.pricePerSeat)}
-          sub={ride.pricePerSeat ? "Gas contribution" : "Driver isn't charging"}
+          label="Gas share"
+          value={ride.pricePerSeat ? `${price(ride.pricePerSeat)} /seat` : "Free"}
+          sub={
+            ride.pricePerSeat ? (
+              ride.aboveEstimate ? (
+                <span className="font-semibold text-warn">Above ${ride.gasEstimate} estimate</span>
+              ) : (
+                `Gas estimate $${ride.gasEstimate}`
+              )
+            ) : ride.gasEstimate === null ? (
+              `Under ${LONG_TRIP_MILES} mi, always free`
+            ) : (
+              "Driver made it free"
+            )
+          }
         />
         <Stat
           label="Seats"
@@ -74,6 +95,11 @@ function TripSummary({ ride }: { ride: RideDetail }) {
           sub={<SeatDots total={ride.seatsTotal} left={ride.seatsLeft} />}
         />
       </div>
+      {ride.aboveEstimate && ride.priceReason && (
+        <p className="mt-3 rounded-2xl bg-warn-50 px-4 py-3 text-[14px] leading-snug text-ink-2">
+          <span className="font-semibold text-warn">Why it's above the gas estimate: </span>“{ride.priceReason}”
+        </p>
+      )}
       {ride.circle && (
         <Link
           href={`/circles/${ride.circle.id}`}
@@ -122,8 +148,22 @@ function Riders({ users }: { users: User[] }) {
 
 function PassengerView({ ride }: { ride: RideDetail }) {
   const [busy, setBusy] = useState(false);
+  const [thanks, setThanks] = useState<"after" | "tip" | null>(null);
   const req = ride.myRequest;
   const driver = firstName(ride.driver.name);
+  const rode = req?.status === "accepted";
+  const needsThanks = rode && ride.completed && !req.feedbackAt;
+
+  // When the driver completes the ride, invite the rider to say thanks (once per tab).
+  useEffect(() => {
+    if (!needsThanks) return;
+    const key = `soonerride:thanks-shown:${req.id}`;
+    try {
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, "1");
+    } catch {}
+    setThanks("after");
+  }, [needsThanks, req?.id]);
 
   async function run(fn: () => Promise<unknown>, msg: string) {
     setBusy(true);
@@ -150,7 +190,16 @@ function PassengerView({ ride }: { ride: RideDetail }) {
               </div>
             </div>
           )}
-          {req?.status === "accepted" && (
+          {rode && ride.completed && (
+            <div className="animate-rise mb-5 flex items-center gap-3 rounded-2xl bg-ok-50 p-4">
+              <Flag size={26} className="text-ok" />
+              <div>
+                <p className="text-[17px] font-bold text-ok">You made it to {ride.to}</p>
+                <p className="text-[14px] text-ink-2">{req.feedbackAt ? `You thanked ${driver}.` : `Ride with ${driver} complete.`}</p>
+              </div>
+            </div>
+          )}
+          {rode && !ride.completed && (
             <div className="animate-rise mb-5 flex items-center gap-3 rounded-2xl bg-ok-50 p-4">
               <CheckCircle2 size={28} className="text-ok" />
               <div>
@@ -176,12 +225,32 @@ function PassengerView({ ride }: { ride: RideDetail }) {
             </Card>
           )}
 
+          {rode && !ride.completed && !req.feedbackAt && (
+            <button
+              onClick={() => setThanks("tip")}
+              className="mt-3 flex w-full items-center gap-3 rounded-2xl bg-surface p-4 text-left ring-1 ring-line/70"
+            >
+              <HeartHandshake size={20} className="shrink-0 text-crimson-600" />
+              <span className="flex-1 text-[14px] leading-snug text-ink-2">
+                <span className="block font-semibold text-ink">Thank {driver}</span>
+                Tip anytime through Venmo, Cash App or Zelle. Always optional.
+              </span>
+              <ChevronRight size={18} className="text-ink-3" />
+            </button>
+          )}
+
           <Riders users={ride.passengers} />
         </div>
       </BottomSheet>
 
       <ActionBar spacer={false}>
+        {!req && ride.completed && (
+          <Button size="lg" disabled>
+            This ride has ended
+          </Button>
+        )}
         {!req &&
+          !ride.completed &&
           (ride.seatsLeft > 0 ? (
             <Button size="lg" disabled={busy} onClick={() => run(() => requestSeat(ride.id), `Request sent to ${driver}`)}>
               Request a seat · {price(ride.pricePerSeat)}
@@ -196,10 +265,20 @@ function PassengerView({ ride }: { ride: RideDetail }) {
             Cancel request
           </Button>
         )}
-        {req?.status === "accepted" && (
+        {rode && !ride.completed && (
           <Button size="lg" variant="secondary" disabled={busy} onClick={() => run(() => cancelRequest(req.id), "Booking cancelled")}>
             Cancel booking
           </Button>
+        )}
+        {needsThanks && (
+          <Button size="lg" onClick={() => setThanks("after")}>
+            Say thanks to {driver}
+          </Button>
+        )}
+        {rode && ride.completed && req.feedbackAt && (
+          <LinkButton href="/rides" size="lg" variant="secondary">
+            Find your next ride
+          </LinkButton>
         )}
         {req?.status === "declined" && (
           <LinkButton href={`/rides?q=${encodeURIComponent(ride.to)}`} size="lg">
@@ -207,6 +286,8 @@ function PassengerView({ ride }: { ride: RideDetail }) {
           </LinkButton>
         )}
       </ActionBar>
+
+      {thanks && req && <ThanksSheet driver={ride.driver} request={req} afterRide={thanks === "after"} onClose={() => setThanks(null)} />}
     </>
   );
 }
@@ -215,8 +296,30 @@ function PassengerView({ ride }: { ride: RideDetail }) {
 
 function DriverView({ ride }: { ride: RideDetail }) {
   const [busy, setBusy] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const pending = ride.requests.filter((r) => r.status === "pending");
   const declined = ride.requests.filter((r) => r.status === "declined");
+  const riders = ride.requests.filter((r) => r.status === "accepted");
+
+  useEffect(() => {
+    if (!confirming) return;
+    const t = setTimeout(() => setConfirming(false), 3000);
+    return () => clearTimeout(t);
+  }, [confirming]);
+
+  async function complete() {
+    if (!confirming) return setConfirming(true);
+    setBusy("complete");
+    try {
+      await completeRide(ride.id);
+      toast("Ride complete. Nice driving!");
+    } catch (e) {
+      toast((e as Error).message);
+    } finally {
+      setBusy(null);
+      setConfirming(false);
+    }
+  }
 
   async function respond(id: string, d: "accepted" | "declined", name: string) {
     setBusy(id);
@@ -231,63 +334,88 @@ function DriverView({ ride }: { ride: RideDetail }) {
   }
 
   return (
-    <BottomSheet peek="40dvh">
-      <div className="pt-1 pb-10">
-        <p className="mb-2 text-[13px] font-semibold tracking-wide text-crimson-600 uppercase">You're driving</p>
-        <TripSummary ride={ride} />
+    <>
+      <BottomSheet peek="40dvh">
+        <div className="pt-1 pb-32">
+          <p className="mb-2 text-[13px] font-semibold tracking-wide text-crimson-600 uppercase">
+            {ride.completed ? "You drove" : "You're driving"}
+          </p>
+          <TripSummary ride={ride} />
 
-        <div className="mt-7">
-          <h2 className="text-[20px] font-bold tracking-tight">
-            Requests
-            {pending.length > 0 && <span className="ml-2 text-ink-3">{pending.length}</span>}
-          </h2>
-          {pending.length === 0 && <p className="mt-1 text-[15px] text-ink-2">No new requests. Riders who request a seat show up here.</p>}
-          <div className="mt-3 space-y-3">
-            {pending.map((r) => (
-              <Card key={r.id} className="animate-rise p-4">
-                <div className="flex items-center gap-3">
-                  <Avatar user={r.passenger} size={44} />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[16px] font-semibold">{r.passenger.name}</p>
-                    <p className="text-[13px] text-ink-2">
-                      ★ {r.passenger.rating.toFixed(1)} · {r.passenger.major ?? "OU student"} · {r.seats} seat
-                    </p>
-                  </div>
-                </div>
-                {r.message && <p className="mt-3 text-[14px] text-ink-2">“{r.message}”</p>}
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                  <Button variant="secondary" disabled={!!busy} onClick={() => respond(r.id, "declined", r.passenger.name)}>
-                    Decline
-                  </Button>
-                  <Button disabled={!!busy || ride.seatsLeft < r.seats} onClick={() => respond(r.id, "accepted", r.passenger.name)}>
-                    {ride.seatsLeft < r.seats ? "Ride full" : "Accept"}
-                  </Button>
-                </div>
-              </Card>
-            ))}
-          </div>
-        </div>
-
-        <div className="mt-7">
-          <h2 className="text-[20px] font-bold tracking-tight">Passengers</h2>
-          {ride.passengers.length === 0 ? (
-            <p className="mt-1 text-[15px] text-ink-2">Nobody confirmed yet.</p>
-          ) : (
-            <div className="mt-3 divide-y divide-line overflow-hidden rounded-[22px] bg-surface ring-1 ring-line/70">
-              {ride.passengers.map((u) => (
-                <div key={u.id} className="flex items-center gap-3 px-4 py-3">
-                  <Avatar user={u} size={36} />
-                  <span className="flex-1 text-[15px] font-medium">{u.name}</span>
-                  <span className="flex items-center gap-1 text-[13px] font-semibold text-ok">
-                    <CheckCircle2 size={15} /> Confirmed
-                  </span>
-                </div>
-              ))}
+          {!ride.completed && (
+            <div className="mt-7">
+              <h2 className="text-[20px] font-bold tracking-tight">
+                Requests
+                {pending.length > 0 && <span className="ml-2 text-ink-3">{pending.length}</span>}
+              </h2>
+              {pending.length === 0 && (
+                <p className="mt-1 text-[15px] text-ink-2">No new requests. Riders who request a seat show up here.</p>
+              )}
+              <div className="mt-3 space-y-3">
+                {pending.map((r) => (
+                  <Card key={r.id} className="animate-rise p-4">
+                    <div className="flex items-center gap-3">
+                      <Avatar user={r.passenger} size={44} />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[16px] font-semibold">{r.passenger.name}</p>
+                        <p className="text-[13px] text-ink-2">
+                          ★ {r.passenger.rating.toFixed(1)} · {r.passenger.major ?? "OU student"} · {r.seats} seat
+                        </p>
+                      </div>
+                    </div>
+                    {r.message && <p className="mt-3 text-[14px] text-ink-2">“{r.message}”</p>}
+                    <div className="mt-4 grid grid-cols-2 gap-2">
+                      <Button variant="secondary" disabled={!!busy} onClick={() => respond(r.id, "declined", r.passenger.name)}>
+                        Decline
+                      </Button>
+                      <Button disabled={!!busy || ride.seatsLeft < r.seats} onClick={() => respond(r.id, "accepted", r.passenger.name)}>
+                        {ride.seatsLeft < r.seats ? "Ride full" : "Accept"}
+                      </Button>
+                    </div>
+                  </Card>
+                ))}
+              </div>
             </div>
           )}
-          {declined.length > 0 && <p className={cx("mt-3 text-[13px] text-ink-3")}>{declined.length} declined</p>}
+
+          <div className="mt-7">
+            <h2 className="text-[20px] font-bold tracking-tight">Passengers</h2>
+            {riders.length === 0 ? (
+              <p className="mt-1 text-[15px] text-ink-2">{ride.completed ? "No passengers on this trip." : "Nobody confirmed yet."}</p>
+            ) : (
+              <div className="mt-3 divide-y divide-line overflow-hidden rounded-[22px] bg-surface ring-1 ring-line/70">
+                {riders.map((r) => (
+                  <div key={r.id} className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <Avatar user={r.passenger} size={36} />
+                      <span className="flex-1 text-[15px] font-medium">{r.passenger.name}</span>
+                      {r.feedbackAt ? (
+                        <span className="flex items-center gap-1 text-[13px] font-semibold text-crimson-600">
+                          <HeartHandshake size={15} /> Said thanks{r.rating ? ` · ★ ${r.rating}` : ""}
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-[13px] font-semibold text-ok">
+                          <CheckCircle2 size={15} /> {ride.completed ? "Rode with you" : "Confirmed"}
+                        </span>
+                      )}
+                    </div>
+                    {r.thanksNote && <p className="mt-2 ml-12 text-[14px] text-ink-2">“{r.thanksNote}”</p>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {declined.length > 0 && <p className={cx("mt-3 text-[13px] text-ink-3")}>{declined.length} declined</p>}
+          </div>
         </div>
-      </div>
-    </BottomSheet>
+      </BottomSheet>
+
+      {!ride.completed && riders.length > 0 && (
+        <ActionBar spacer={false}>
+          <Button size="lg" variant={confirming ? "primary" : "secondary"} disabled={!!busy} onClick={complete}>
+            <Flag size={18} /> {confirming ? "Tap again to complete" : "Complete ride"}
+          </Button>
+        </ActionBar>
+      )}
+    </>
   );
 }

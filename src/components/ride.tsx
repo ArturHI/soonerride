@@ -58,8 +58,10 @@ export function Rating({ value }: { value: number }) {
 }
 
 export function RideCard({ ride, showStatus = true, mine }: { ride: RideView; showStatus?: boolean; mine?: boolean }) {
-  const status = ride.myRequest && STATUS[ride.myRequest.status];
+  const req = ride.myRequest;
+  const status = req && STATUS[req.status];
   const full = ride.seatsLeft <= 0;
+  const needsThanks = ride.completed && req?.status === "accepted" && !req.feedbackAt;
   return (
     <Link href={`/rides/${ride.id}`} className="block active:scale-[0.99] transition-transform">
       <Card className="p-4">
@@ -67,7 +69,7 @@ export function RideCard({ ride, showStatus = true, mine }: { ride: RideView; sh
           <p className="text-[14px] font-semibold text-ink-2">{when(ride.departAt)}</p>
           <p className="text-[17px] font-bold tabular-nums">
             {price(ride.pricePerSeat)}
-            {ride.pricePerSeat ? <span className="text-[13px] font-medium text-ink-3"> /seat</span> : null}
+            {ride.pricePerSeat ? <span className="text-[13px] font-medium text-ink-3"> gas share</span> : null}
           </p>
         </div>
         <Route from={ride.from} fromDetail={ride.fromDetail} to={ride.to} toDetail={ride.toDetail} compact />
@@ -79,7 +81,11 @@ export function RideCard({ ride, showStatus = true, mine }: { ride: RideView; sh
               <Rating value={ride.driver.rating} />
             </span>
           </p>
-          {showStatus && status ? (
+          {needsThanks ? (
+            <Pill tone="crimson">Say thanks</Pill>
+          ) : ride.completed ? (
+            <Pill>Completed</Pill>
+          ) : showStatus && status ? (
             <Pill tone={status.tone}>{status.label}</Pill>
           ) : mine && ride.pendingCount > 0 ? (
             <Pill tone="crimson">
@@ -139,13 +145,16 @@ export function Timeline({ ride, request }: { ride: RideView; request: SeatReque
         : { label: "Waiting for driver", detail: `${ride.driver.name.split(" ")[0]} usually replies within an hour`, state: "current" },
   ];
   if (!declined) {
+    const done = accepted && ride.completed;
     steps.push(
-      { label: "Pickup", detail: `${when(ride.departAt)} · ${ride.fromDetail}`, state: accepted ? "current" : "todo" },
-      {
-        label: `Arrive in ${ride.to}`,
-        detail: `About ${t(arrival(ride.departAt, ride.to))} · ${duration(driveMinutes(ride.to))}`,
-        state: "todo",
-      },
+      { label: "Pickup", detail: `${when(ride.departAt)} · ${ride.fromDetail}`, state: done ? "done" : accepted ? "current" : "todo" },
+      done
+        ? { label: `Arrived in ${ride.to}`, detail: ride.completedAt ? t(ride.completedAt) : "Trip complete", state: "done" }
+        : {
+            label: `Arrive in ${ride.to}`,
+            detail: `About ${t(arrival(ride.departAt, ride.miles))} · ${duration(driveMinutes(ride.miles))}`,
+            state: "todo",
+          },
     );
   }
   return (

@@ -79,7 +79,7 @@ export default function Home() {
               <span className={`h-2.5 w-2.5 rounded-full ${next.myRequest.status === "accepted" ? "bg-ok" : "bg-warn"}`} />
               <div className="min-w-0 flex-1">
                 <p className="text-[13px] font-semibold text-ink-2">
-                  {STATUS[next.myRequest.status].label} · {when(next.departAt)}
+                  {next.completed ? "Say thanks" : STATUS[next.myRequest.status].label} · {when(next.departAt)}
                 </p>
                 <p className="truncate text-[16px] font-semibold">
                   {next.to} with {firstName(next.driver.name)}

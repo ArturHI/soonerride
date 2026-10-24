@@ -6,10 +6,22 @@
 
 import { useEffect, useState } from "react";
 import { backend, type Op } from "./backend";
-import { firstName } from "./format";
+import { ABOVE_ESTIMATE, arrival, firstName, gasEstimate, LONG_TRIP_MILES, milesTo } from "./format";
 import { AVATAR_COLORS, seed, type DB } from "./seed";
 import { toast } from "./toast";
-import type { Car, Circle, CircleCategory, CircleDetail, CircleView, Ride, RideDetail, RideView, SeatRequest, User } from "./types";
+import type {
+  Car,
+  Circle,
+  CircleCategory,
+  CircleDetail,
+  CircleView,
+  Ride,
+  RideDetail,
+  RideView,
+  SeatRequest,
+  TipMethod,
+  User,
+} from "./types";
 
 const SESSION_KEY = "soonerride:session";
 
@@ -72,15 +84,23 @@ function announce(prev: DB, next: DB) {
   const myId = sessionId();
   if (!myId) return;
   const before = new Map(prev.requests.map((r) => [r.id, r]));
+  const ridesBefore = new Map(prev.rides.map((r) => [r.id, r]));
   const name = (id: string) => firstName(next.users.find((u) => u.id === id)?.name ?? "Someone");
   for (const r of next.requests) {
     const ride = next.rides.find((x) => x.id === r.rideId);
     const old = before.get(r.id);
-    if (!ride || old?.status === r.status) continue;
+    if (!ride) continue;
     const href = `/rides/${ride.id}`;
+    if (ride.driverId === myId && r.feedbackAt && !old?.feedbackAt) toast(`${name(r.passengerId)} said thanks for the ride`, href);
+    if (old?.status === r.status) continue;
     if (ride.driverId === myId && r.status === "pending") toast(`${name(r.passengerId)} requested a seat to ${ride.to}`, href);
     if (r.passengerId === myId && r.status === "accepted") toast(`${name(ride.driverId)} accepted your seat request`, href);
     if (r.passengerId === myId && r.status === "declined") toast(`${name(ride.driverId)} declined your request`, href);
+  }
+  for (const ride of next.rides) {
+    if (ride.status !== "completed" || ridesBefore.get(ride.id)?.status === "completed") continue;
+    const mine = next.requests.some((q) => q.rideId === ride.id && q.passengerId === myId && q.status === "accepted");
+    if (mine) toast(`You've arrived. Say thanks to ${name(ride.driverId)}?`, `/rides/${ride.id}`);
   }
 }
 
@@ -182,6 +202,13 @@ export async function listUsers() {
   return [...db().users];
 }
 
+export async function updateMyPayments(handles: Pick<User, "venmo" | "cashapp" | "zelle">) {
+  await ready();
+  const u = requireMe();
+  Object.assign(u, handles);
+  await commit([{ kind: "upsert", table: "users", row: u }]);
+}
+
 export async function updateMyCar(car: Car) {
   await ready();
   const u = requireMe();
@@ -216,16 +243,32 @@ function toView(ride: Ride): RideView {
     d.requests
       .filter((r) => r.rideId === ride.id && r.passengerId === myId && r.status !== "cancelled")
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
+  const miles = rideMiles(ride);
+  const gas = (ride.distanceMiles ?? milesTo(ride.to) ?? 0) >= LONG_TRIP_MILES ? gasEstimate(miles, ride.seatsTotal) : null;
   return {
     ...ride,
     driver: d.users.find((u) => u.id === ride.driverId)!,
     seatsLeft: ride.seatsTotal - seatsTaken(ride.id),
     myRequest,
     pendingCount: d.requests.filter((r) => r.rideId === ride.id && r.status === "pending").length,
+    completed: isCompleted(ride),
+    miles,
+    gasEstimate: gas,
+    aboveEstimate: !!(gas && ride.pricePerSeat && ride.pricePerSeat >= gas * ABOVE_ESTIMATE),
   };
 }
 
-const upcoming = (r: Ride) => new Date(r.departAt).getTime() > Date.now() - 60 * 60 * 1000;
+export function rideMiles(ride: Pick<Ride, "distanceMiles" | "extraMiles" | "to">) {
+  return (ride.distanceMiles ?? milesTo(ride.to) ?? 120) + (ride.extraMiles ?? 0);
+}
+
+// Rides finish when the driver taps Complete, or automatically 3 hours after the estimated arrival.
+const AUTO_COMPLETE_MS = 3 * 60 * 60 * 1000;
+function isCompleted(r: Ride) {
+  return r.status === "completed" || Date.now() > new Date(arrival(r.departAt, rideMiles(r))).getTime() + AUTO_COMPLETE_MS;
+}
+
+const upcoming = (r: Ride) => !isCompleted(r) && new Date(r.departAt).getTime() > Date.now() - 60 * 60 * 1000;
 const byDepart = (a: Ride, b: Ride) => a.departAt.localeCompare(b.departAt);
 
 function sameDay(iso: string, ymd: string) {
@@ -264,13 +307,19 @@ export async function getRide(id: string): Promise<RideDetail | null> {
   };
 }
 
-export type NewRide = Omit<Ride, "id" | "driverId" | "createdAt">;
+export type NewRide = Omit<Ride, "id" | "driverId" | "createdAt" | "status" | "completedAt">;
 
 export async function createRide(input: NewRide) {
   await ready();
   const user = requireMe();
   if (input.seatsTotal < 1) throw new Error("Add at least one seat");
-  const ride: Ride = { ...input, id: uid("r"), driverId: user.id, createdAt: nowISO() };
+  const short = (input.distanceMiles ?? milesTo(input.to) ?? 0) < LONG_TRIP_MILES;
+  if (short && input.pricePerSeat) throw new Error(`Rides under ${LONG_TRIP_MILES} miles are free`);
+  const est = gasEstimate(rideMiles(input), input.seatsTotal);
+  if (input.pricePerSeat && input.pricePerSeat >= est * ABOVE_ESTIMATE && !input.priceReason?.trim()) {
+    throw new Error("Add a reason for the higher price");
+  }
+  const ride: Ride = { ...input, status: "open", id: uid("r"), driverId: user.id, createdAt: nowISO() };
   db().rides.push(ride);
   await commit([{ kind: "upsert", table: "rides", row: ride }]);
   return ride;
@@ -328,6 +377,51 @@ export async function respondToRequest(requestId: string, decision: "accepted" |
   await commit([{ kind: "upsert", table: "requests", row: req }]);
 }
 
+export async function completeRide(rideId: string) {
+  await ready();
+  const user = requireMe();
+  const ride = db().rides.find((r) => r.id === rideId);
+  if (!ride || ride.driverId !== user.id) throw new Error("Not allowed");
+  ride.status = "completed";
+  ride.completedAt = nowISO();
+  // Requests nobody answered can't happen anymore.
+  const stale = db().requests.filter((q) => q.rideId === rideId && q.status === "pending");
+  stale.forEach((q) => ((q.status = "declined"), (q.updatedAt = nowISO())));
+  await commit([
+    { kind: "upsert", table: "rides", row: ride },
+    ...stale.map((q) => ({ kind: "upsert" as const, table: "requests" as const, row: q })),
+  ]);
+}
+
+export type Thanks = { rating?: number; thanksNote?: string; tipAmount?: number; tipMethod?: TipMethod };
+
+/** Rider's optional rating, note and tip record. Updates the driver's average rating. */
+export async function sendThanks(requestId: string, t: Thanks) {
+  await ready();
+  const user = requireMe();
+  const d = db();
+  const req = d.requests.find((q) => q.id === requestId && q.passengerId === user.id);
+  const ride = req && d.rides.find((r) => r.id === req.rideId);
+  const driver = ride && d.users.find((u) => u.id === ride.driverId);
+  if (!req || !ride || !driver) throw new Error("Ride not found");
+  const ops: Op[] = [];
+  if (t.rating && !req.rating) {
+    driver.rating = Math.round(((driver.rating * driver.tripCount + t.rating) / (driver.tripCount + 1)) * 10) / 10;
+    driver.tripCount += 1;
+    ops.push({ kind: "upsert", table: "users", row: driver });
+  }
+  Object.assign(req, {
+    rating: t.rating ?? req.rating,
+    thanksNote: t.thanksNote?.trim() || req.thanksNote,
+    tipAmount: t.tipAmount ?? req.tipAmount,
+    tipMethod: t.tipMethod ?? req.tipMethod,
+    feedbackAt: req.feedbackAt ?? nowISO(),
+    updatedAt: nowISO(),
+  });
+  ops.push({ kind: "upsert", table: "requests", row: req });
+  await commit(ops);
+}
+
 export async function myTrips() {
   await ready();
   const myId = sessionId();
@@ -338,8 +432,17 @@ export async function myTrips() {
     .map(toView)
     // rides waiting on the driver's reply come first
     .sort((a, b) => Number(b.pendingCount > 0) - Number(a.pendingCount > 0));
+  const WEEK = 7 * 24 * 60 * 60 * 1000;
+  const awaitingThanks = (r: Ride) =>
+    isCompleted(r) &&
+    Date.now() - new Date(r.departAt).getTime() < WEEK &&
+    d.requests.some((q) => q.rideId === r.id && q.passengerId === myId && q.status === "accepted" && !q.feedbackAt);
   const riding = d.rides
-    .filter((r) => upcoming(r) && d.requests.some((q) => q.rideId === r.id && q.passengerId === myId && q.status !== "cancelled"))
+    .filter(
+      (r) =>
+        awaitingThanks(r) ||
+        (upcoming(r) && d.requests.some((q) => q.rideId === r.id && q.passengerId === myId && q.status !== "cancelled")),
+    )
     .sort(byDepart)
     .map(toView);
   return { driving, riding };

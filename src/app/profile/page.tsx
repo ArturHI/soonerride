@@ -6,6 +6,7 @@ import { getMe, listUsers, resetDemo, signOut, switchUser, useQuery } from "@/li
 import { toast } from "@/lib/toast";
 import { Avatar, Button, Card, TopBar, cx } from "@/components/ui";
 import { Rating } from "@/components/ride";
+import { PaymentHandles } from "@/components/thanks";
 
 export default function Profile() {
   const router = useRouter();
@@ -39,6 +40,8 @@ export default function Profile() {
           <span className="rounded-md bg-fill px-2 py-0.5 font-mono text-[13px] font-semibold">{me.car.plate}</span>
         </Card>
       )}
+
+      <PaymentHandles key={me.id} user={me} />
 
       <section className="mt-8 px-5">
         <h2 className="text-[17px] font-bold">Demo accounts</h2>
