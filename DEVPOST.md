@@ -7,6 +7,7 @@
 **Links**
 - Try it: https://soonerride.vercel.app (tap "Try a demo account")
 - Code: https://github.com/ArturHI/soonerride
+- Presentation: https://github.com/ArturHI/soonerride/blob/main/docs/SoonerRide-presentation.pdf
 
 **Built with:** Next.js, React, TypeScript, Tailwind CSS, Supabase, PostgreSQL, Supabase Realtime, Vercel, Lucide icons
 
