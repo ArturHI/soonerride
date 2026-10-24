@@ -101,3 +101,41 @@ alter table seat_requests add column if not exists feedback_at timestamptz;
 
 -- Make the API see the new columns right away.
 notify pgrst, 'reload schema';
+
+-- v3: weekly circles (repeating rides). Additive and safe to re-run.
+alter table circles drop constraint if exists circles_category_check;
+alter table circles add constraint circles_category_check
+  check (category in ('game', 'airport', 'holiday', 'event', 'weekly'));
+alter table circles add column if not exists pickup text;
+alter table circles add column if not exists days int[];        -- 0 = Sunday … 6 = Saturday
+alter table circles add column if not exists time text;         -- "08:40"
+alter table circles add column if not exists return_time text;
+alter table circles add column if not exists end_date date;
+
+alter table rides add column if not exists weekly boolean not null default false;
+
+-- One-week exceptions: someone skips a week, or a member covers for the driver.
+create table if not exists week_changes (
+  id text primary key,
+  ride_id text not null references rides(id) on delete cascade,
+  date date not null,
+  user_id text not null references users(id) on delete cascade,
+  kind text not null check (kind in ('skip', 'cover')),
+  created_at timestamptz not null default now()
+);
+create index if not exists week_changes_ride_id_idx on week_changes (ride_id);
+
+alter table week_changes enable row level security;
+drop policy if exists "demo open access" on week_changes;
+create policy "demo open access" on week_changes for all to anon, authenticated using (true) with check (true);
+grant select, insert, update, delete on week_changes to anon, authenticated;
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'week_changes'
+  ) then
+    alter publication supabase_realtime add table week_changes;
+  end if;
+end $$;
+
+notify pgrst, 'reload schema';

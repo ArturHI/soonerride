@@ -5,10 +5,12 @@ import { useState } from "react";
 import { Car, Check, MapPin, UsersRound } from "lucide-react";
 import { getCircle, getMe, joinCircle, leaveCircle, useQuery } from "@/lib/data";
 import { firstName, fullDate } from "@/lib/format";
+import { shortDate } from "@/lib/schedule";
 import { toast } from "@/lib/toast";
 import { ActionBar, Avatar, Button, Card, Empty, LinkButton, TopBar } from "@/components/ui";
 import { RideCard } from "@/components/ride";
 import { categoryOf } from "@/components/circle";
+import { ScheduleLine, WeekList } from "@/components/weekly";
 
 export default function CirclePage() {
   const { id } = useParams<{ id: string }>();
@@ -33,6 +35,9 @@ export default function CirclePage() {
   const cat = categoryOf(circle.category);
   const Icon = cat.icon;
   const offerHref = `/offer?circle=${circle.id}`;
+  const weekly = circle.category === "weekly";
+  const weeklyRide = weekly ? circle.rides.find((r) => r.weekly) : undefined;
+  const inWeekly = weeklyRide && (weeklyRide.driverId === me.id || weeklyRide.myRequest?.status === "accepted");
 
   async function toggle() {
     setBusy(true);
@@ -54,9 +59,19 @@ export default function CirclePage() {
           <Icon size={16} /> {cat.label}
         </p>
         <h1 className="mt-2 text-[28px] leading-tight font-bold tracking-tight">{circle.title}</h1>
-        <p className="mt-2 flex items-center gap-1.5 text-[15px] text-ink-2">
-          <MapPin size={16} /> {circle.destination} · {fullDate(circle.date + "T12:00")}
-        </p>
+        {weekly ? (
+          <>
+            <p className="mt-2 flex items-center gap-1.5 text-[15px] text-ink-2">
+              <MapPin size={16} className="shrink-0" /> {circle.pickup} → {circle.destination}
+            </p>
+            <ScheduleLine circle={circle} className="mt-1" />
+            {circle.endDate && <p className="mt-1 ml-[22px] text-[13px] text-ink-3">Until {shortDate(circle.endDate)}</p>}
+          </>
+        ) : (
+          <p className="mt-2 flex items-center gap-1.5 text-[15px] text-ink-2">
+            <MapPin size={16} /> {circle.destination} · {fullDate(circle.date + "T12:00")}
+          </p>
+        )}
         {circle.description && <p className="mt-3 text-[15px] leading-snug text-ink">{circle.description}</p>}
 
         <div className="mt-5 grid grid-cols-2 gap-3">
@@ -64,43 +79,73 @@ export default function CirclePage() {
             <p className="text-[24px] font-bold">{circle.members.length}</p>
             <p className="text-[13px] text-ink-2">students going</p>
           </Card>
-          <Card className="p-3.5">
-            <p className="text-[24px] font-bold">{circle.seatsOffered}</p>
-            <p className="text-[13px] text-ink-2">
-              {circle.rideCount
-                ? `open seat${circle.seatsOffered === 1 ? "" : "s"} from ${circle.rideCount} driver${circle.rideCount === 1 ? "" : "s"}`
-                : "open seats, no drivers yet"}
-            </p>
-          </Card>
+          {weekly ? (
+            <Card className="p-3.5">
+              <p className="truncate text-[24px] font-bold">{weeklyRide ? firstName(weeklyRide.driver.name) : "—"}</p>
+              <p className="text-[13px] text-ink-2">{weeklyRide ? "drives every week" : "no regular driver yet"}</p>
+            </Card>
+          ) : (
+            <Card className="p-3.5">
+              <p className="text-[24px] font-bold">{circle.seatsOffered}</p>
+              <p className="text-[13px] text-ink-2">
+                {circle.rideCount
+                  ? `open seat${circle.seatsOffered === 1 ? "" : "s"} from ${circle.rideCount} driver${circle.rideCount === 1 ? "" : "s"}`
+                  : "open seats, no drivers yet"}
+              </p>
+            </Card>
+          )}
         </div>
       </div>
 
-      <section className="mt-7 px-5">
-        <h2 className="mb-3 text-[20px] font-bold tracking-tight">Rides for this circle</h2>
-        {circle.rides.length ? (
-          <div className="space-y-3">
-            {circle.rides.map((r) => (
-              <RideCard key={r.id} ride={r} mine={r.driverId === me.id} />
-            ))}
-          </div>
-        ) : (
-          <Card className="flex items-center gap-4 p-4">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-fill text-ink-2">
-              <Car size={21} />
-            </span>
-            <div className="flex-1">
-              <p className="text-[15px] font-semibold">No driver yet</p>
-              <p className="text-[14px] leading-snug text-ink-2">
-                {circle.members.length} student{circle.members.length === 1 ? " is" : "s are"} looking for a ride. Driving? Offer seats to
-                the group.
-              </p>
+      {weekly ? (
+        <section className="mt-7 px-5">
+          <h2 className="mb-3 text-[20px] font-bold tracking-tight">Weekly ride</h2>
+          {weeklyRide ? (
+            <>
+              <RideCard ride={weeklyRide} mine={weeklyRide.driverId === me.id} />
+              <h3 className="mt-5 mb-2 text-[15px] font-semibold text-ink-2">Next few weeks</h3>
+              <WeekList ride={weeklyRide} me={me} canCover={circle.isMember && !!me.car} />
+            </>
+          ) : (
+            <Card className="flex items-center gap-4 p-4">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-fill text-ink-2">
+                <Car size={21} />
+              </span>
+              <div className="flex-1">
+                <p className="text-[15px] font-semibold">No regular driver yet</p>
+                <p className="text-[14px] leading-snug text-ink-2">Have a car? Drive this every week and classmates sign up once.</p>
+              </div>
+            </Card>
+          )}
+        </section>
+      ) : (
+        <section className="mt-7 px-5">
+          <h2 className="mb-3 text-[20px] font-bold tracking-tight">Rides for this circle</h2>
+          {circle.rides.length ? (
+            <div className="space-y-3">
+              {circle.rides.map((r) => (
+                <RideCard key={r.id} ride={r} mine={r.driverId === me.id} />
+              ))}
             </div>
-          </Card>
-        )}
-      </section>
+          ) : (
+            <Card className="flex items-center gap-4 p-4">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-fill text-ink-2">
+                <Car size={21} />
+              </span>
+              <div className="flex-1">
+                <p className="text-[15px] font-semibold">No driver yet</p>
+                <p className="text-[14px] leading-snug text-ink-2">
+                  {circle.members.length} student{circle.members.length === 1 ? " is" : "s are"} looking for a ride. Driving? Offer seats to
+                  the group.
+                </p>
+              </div>
+            </Card>
+          )}
+        </section>
+      )}
 
       <section className="mt-7 px-5">
-        <h2 className="mb-3 text-[20px] font-bold tracking-tight">Who's going</h2>
+        <h2 className="mb-3 text-[20px] font-bold tracking-tight">{weekly ? "Members" : "Who's going"}</h2>
         <div className="divide-y divide-line overflow-hidden rounded-[22px] bg-surface ring-1 ring-line/70">
           {circle.members.map((u) => (
             <div key={u.id} className="flex items-center gap-3 px-4 py-3">
@@ -123,9 +168,19 @@ export default function CirclePage() {
 
       <ActionBar>
         <div className="grid grid-cols-2 gap-2">
-          <LinkButton href={offerHref} variant="secondary" className="h-[54px] text-[16px]">
-            <Car size={18} /> Offer seats
-          </LinkButton>
+          {!weekly ? (
+            <LinkButton href={offerHref} variant="secondary" className="h-[54px] text-[16px]">
+              <Car size={18} /> Offer seats
+            </LinkButton>
+          ) : !weeklyRide ? (
+            <LinkButton href={offerHref} variant="secondary" className="h-[54px] text-[16px]">
+              <Car size={18} /> I'll drive
+            </LinkButton>
+          ) : (
+            <LinkButton href={`/rides/${weeklyRide.id}`} variant={inWeekly ? "secondary" : "primary"} className="h-[54px] text-[16px]">
+              {inWeekly ? "View ride" : "Get a seat"}
+            </LinkButton>
+          )}
           {circle.isMember ? (
             <Button variant="secondary" className="h-[54px] text-[16px]" disabled={busy} onClick={toggle}>
               <Check size={18} className="text-ok" strokeWidth={3} /> Going

@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { ArrowRight, Car, Plus, Search } from "lucide-react";
-import { getMe, listCircles, myTrips, searchRides, useQuery } from "@/lib/data";
+import { ArrowRight, Car, Plus, Repeat, Search } from "lucide-react";
+import { getMe, listCircles, myTrips, myWeekly, searchRides, useQuery } from "@/lib/data";
 import { firstName, when } from "@/lib/format";
 import { Avatar, Card, Section } from "@/components/ui";
 import { RideCard, STATUS } from "@/components/ride";
@@ -23,9 +23,10 @@ export default function Home() {
   const rides = useQuery(() => searchRides());
   const circles = useQuery(() => listCircles());
   const trips = useQuery(myTrips);
+  const weekly = useQuery(myWeekly);
   const [q, setQ] = useState("");
 
-  const next = trips?.riding.find((r) => r.myRequest?.status === "accepted" || r.myRequest?.status === "pending");
+  const next = trips?.riding.find((r) => !r.weekly && (r.myRequest?.status === "accepted" || r.myRequest?.status === "pending"));
   const others = rides?.filter((r) => r.driverId !== me?.id).slice(0, 3);
 
   return (
@@ -103,6 +104,38 @@ export default function Home() {
           <ArrowRight size={20} className="text-white/60" />
         </Link>
       </div>
+
+      {!!weekly?.length && (
+        <Section title="Your weekly rides">
+          <div className="space-y-3 px-5">
+            {weekly.map(({ ride, week, role }) => (
+              <Link key={ride.id} href={`/rides/${ride.id}`} className="block">
+                <Card className="flex items-center gap-3 p-4">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-crimson-50 text-crimson-600">
+                    <Repeat size={19} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] font-semibold text-ink-2">{when(week.at)}</p>
+                    <p className="truncate text-[16px] font-semibold">
+                      {ride.from} → {ride.to}
+                    </p>
+                    <p className={week.driver ? "text-[13px] text-ink-2" : "text-[13px] font-semibold text-warn"}>
+                      {role === "driving"
+                        ? `You're driving · ${week.riders.length} rider${week.riders.length === 1 ? "" : "s"}`
+                        : role === "covering"
+                          ? `You're covering for ${firstName(ride.driver.name)}`
+                          : week.driver
+                            ? `${firstName(week.driver.name)} driving${week.covering ? " (covering)" : ""}`
+                            : "Needs a driver this week"}
+                    </p>
+                  </div>
+                  <ArrowRight size={20} className="text-ink-3" />
+                </Card>
+              </Link>
+            ))}
+          </div>
+        </Section>
+      )}
 
       <Section
         title="Upcoming rides"

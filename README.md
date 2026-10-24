@@ -42,6 +42,12 @@ Use a phone hotspot rather than venue Wi-Fi.
 5. Phone B: open the ride → **Request a seat**. A gets a banner and a Trips badge.
 6. Phone A: tap the banner → **Accept**. B flips to **Booking confirmed** with a banner.
 
+Weekly rides: Circles → New → **Weekly** (pickup, drop-off, days, time, optional return,
+ends at the semester). A member taps **I'll drive** to become the regular driver; riders
+**Sign up for every week** once. Anyone can **Skip** a week; if the driver skips, members
+with a car can tap **I'll drive** to cover. The sample "Wed 9am class" circle has a week
+that needs a driver.
+
 To show both phones on the projector: connect them by cable to a Mac, then QuickTime →
 File → New Movie Recording → pick each iPhone from the menu next to the record button.
 

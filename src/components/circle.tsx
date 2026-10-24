@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { Car, House, Plane, Ticket, Trophy } from "lucide-react";
+import { Car, House, Plane, Repeat, Ticket, Trophy } from "lucide-react";
 import { ymdLabel } from "@/lib/format";
+import { scheduleLabel } from "@/lib/schedule";
 import type { CircleCategory, CircleView } from "@/lib/types";
 import { AvatarStack, Card, cx } from "./ui";
 
 export const CATEGORIES: { value: CircleCategory; label: string; icon: typeof Trophy }[] = [
+  { value: "weekly", label: "Weekly", icon: Repeat },
   { value: "game", label: "Game day", icon: Trophy },
   { value: "airport", label: "Airport", icon: Plane },
   { value: "holiday", label: "Going home", icon: House },
@@ -29,10 +31,14 @@ export function CircleCard({ circle, wide }: { circle: CircleView; wide?: boolea
           </span>
           {cat.label}
           <span className="text-ink-3">·</span>
-          <span>{ymdLabel(circle.date)}</span>
+          <span className="truncate">
+            {circle.category === "weekly" ? scheduleLabel(circle).replace("Every ", "") : ymdLabel(circle.date)}
+          </span>
         </div>
         <p className="mt-3 line-clamp-2 text-[17px] font-semibold leading-snug">{circle.title}</p>
-        <p className="mt-0.5 text-[14px] text-ink-2">To {circle.destination}</p>
+        <p className="mt-0.5 truncate text-[14px] text-ink-2">
+          {circle.pickup ? `${circle.pickup} → ${circle.destination}` : `To ${circle.destination}`}
+        </p>
         <div className="mt-auto flex items-center justify-between pt-4">
           <span className="flex items-center gap-2">
             <AvatarStack users={circle.members} max={4} size={26} />
@@ -40,7 +46,7 @@ export function CircleCard({ circle, wide }: { circle: CircleView; wide?: boolea
           </span>
           <span className={cx("flex items-center gap-1 text-[13px] font-semibold", circle.seatsOffered ? "text-ok" : "text-ink-3")}>
             <Car size={15} />
-            {circle.seatsOffered ? `${circle.seatsOffered} seats` : "No driver yet"}
+            {circle.rideCount ? (circle.category === "weekly" ? "Has a driver" : `${circle.seatsOffered} seats`) : "No driver yet"}
           </span>
         </div>
       </Card>

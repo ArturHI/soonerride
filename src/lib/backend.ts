@@ -29,7 +29,10 @@ const local: Backend = {
   async load() {
     try {
       const raw = localStorage.getItem(DB_KEY);
-      return raw ? (JSON.parse(raw) as DB) : null;
+      if (!raw) return null;
+      const db = JSON.parse(raw) as DB;
+      db.changes ??= []; // saved before weekly rides existed
+      return db;
     } catch {
       return null;
     }
@@ -56,9 +59,10 @@ const TABLES: Record<Table, string> = {
   members: "circle_members",
   rides: "rides",
   requests: "seat_requests",
+  changes: "week_changes",
 };
 // Insert parents before children; delete in reverse.
-const ORDER: Table[] = ["users", "circles", "members", "rides", "requests"];
+const ORDER: Table[] = ["users", "circles", "members", "rides", "requests", "changes"];
 const TIMESTAMPS = new Set(["departAt", "createdAt", "updatedAt", "joinedAt"]);
 
 const toSnake = (k: string) => k.replace(/[A-Z]/g, (c) => "_" + c.toLowerCase());

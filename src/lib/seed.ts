@@ -1,4 +1,5 @@
-import type { Circle, CircleMember, Ride, SeatRequest, User } from "./types";
+import { occurrences, semesterEnd, ymd } from "./schedule";
+import type { Circle, CircleMember, Ride, SeatRequest, User, WeekChange } from "./types";
 
 export type DB = {
   users: User[];
@@ -6,6 +7,7 @@ export type DB = {
   requests: SeatRequest[];
   circles: Circle[];
   members: CircleMember[];
+  changes: WeekChange[];
 };
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -148,7 +150,27 @@ export function seed(): DB {
     },
   ];
 
+  // A weekly class ride: the next Wednesday, 8:40 AM, through the end of the semester.
+  const weekly = { days: [3], time: "08:40", endDate: semesterEnd() };
+  const firstWed = occurrences({ date: day(new Date()), ...weekly }, 3);
+  circles.push({
+    id: "c_weekly",
+    title: "Wed 9am class: Dunham → Engineering",
+    category: "weekly",
+    destination: "Gallogly Hall",
+    pickup: "Dunham College",
+    date: day(new Date()),
+    ...weekly,
+    returnTime: "10:20",
+    description: "Same 9am lab every Wednesday. Meet at the Dunham front circle.",
+    createdBy: "u_noah",
+    createdAt: now,
+  });
+
   const members: CircleMember[] = [
+    ["c_weekly", "u_noah"],
+    ["c_weekly", "u_jordan"],
+    ["c_weekly", "u_ava"],
     ["c_thanks", "u_ava"],
     ["c_thanks", "u_noah"],
     ["c_thanks", "u_chris"],
@@ -232,12 +254,34 @@ export function seed(): DB {
     },
   ];
 
+  rides.push({
+    id: "r_weekly",
+    driverId: "u_jordan",
+    from: "Dunham College",
+    fromDetail: "Front circle",
+    to: "Gallogly Hall",
+    toDetail: "Engineering quad",
+    departAt: firstWed[0]?.toISOString() ?? at(3, 8, 40),
+    seatsTotal: 3,
+    distanceMiles: 2,
+    pricePerSeat: null,
+    circleId: "c_weekly",
+    weekly: true,
+    createdAt: now,
+  });
+
+  // Jordan can't drive the third Wednesday, so that week needs someone to cover.
+  const changes: WeekChange[] = firstWed[2]
+    ? [{ id: "w_1", rideId: "r_weekly", date: ymd(firstWed[2]), userId: "u_jordan", kind: "skip", createdAt: now }]
+    : [];
+
   const requests: SeatRequest[] = [
     { id: "q_1", rideId: "r_dallas", passengerId: "u_noah", seats: 1, status: "accepted", createdAt: now, updatedAt: now },
     { id: "q_2", rideId: "r_tulsa", passengerId: "u_noah", seats: 1, status: "accepted", createdAt: now, updatedAt: now },
+    { id: "q_3", rideId: "r_weekly", passengerId: "u_noah", seats: 1, status: "accepted", createdAt: now, updatedAt: now },
   ];
 
-  return { users, rides, requests, circles, members };
+  return { users, rides, requests, circles, members, changes };
 }
 
 export const AVATAR_COLORS = ["#B9826B", "#6F8A7A", "#7C7FA6", "#C49A4A", "#A0687F", "#5E8CA3", "#8A7A62"];

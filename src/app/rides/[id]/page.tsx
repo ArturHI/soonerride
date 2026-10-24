@@ -11,6 +11,8 @@ import { ActionBar, Avatar, Button, Card, Empty, LinkButton, cx } from "@/compon
 import { DriverCard, Route, SeatDots, Timeline } from "@/components/ride";
 import { BottomSheet, RouteMap } from "@/components/map";
 import { ThanksSheet } from "@/components/thanks";
+import { WeekList } from "@/components/weekly";
+import { returnLabel } from "@/lib/schedule";
 import type { RideDetail, User } from "@/lib/types";
 
 export default function RidePage() {
@@ -48,7 +50,7 @@ export default function RidePage() {
         <ChevronLeft size={24} strokeWidth={2.4} />
       </button>
 
-      {isDriver ? <DriverView ride={ride} /> : <PassengerView ride={ride} />}
+      {isDriver ? <DriverView ride={ride} me={me} /> : <PassengerView ride={ride} me={me} />}
     </main>
   );
 }
@@ -56,12 +58,23 @@ export default function RidePage() {
 function TripSummary({ ride }: { ride: RideDetail }) {
   return (
     <>
-      <p className="text-[24px] font-bold tracking-tight">{when(ride.departAt)}</p>
-      <p className="mt-0.5 text-[14px] text-ink-2">
-        {ride.completed
-          ? "Trip complete"
-          : `Arrive about ${timeLabel(new Date(arrival(ride.departAt, ride.miles)))} · ${duration(driveMinutes(ride.miles))} · ${ride.miles} mi`}
-      </p>
+      {ride.circle && ride.weekly ? (
+        <>
+          <p className="text-[24px] font-bold tracking-tight">{ride.schedule}</p>
+          <p className="mt-0.5 text-[14px] text-ink-2">
+            {[ride.nextAt && `Next: ${when(ride.nextAt)}`, returnLabel(ride.circle)].filter(Boolean).join(" · ")}
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="text-[24px] font-bold tracking-tight">{when(ride.departAt)}</p>
+          <p className="mt-0.5 text-[14px] text-ink-2">
+            {ride.completed
+              ? "Trip complete"
+              : `Arrive about ${timeLabel(new Date(arrival(ride.departAt, ride.miles)))} · ${duration(driveMinutes(ride.miles))} · ${ride.miles} mi`}
+          </p>
+        </>
+      )}
       <div className="mt-5">
         <Route from={ride.from} fromDetail={ride.fromDetail} to={ride.to} toDetail={ride.toDetail} />
       </div>
@@ -107,7 +120,9 @@ function TripSummary({ ride }: { ride: RideDetail }) {
         >
           <UsersRound size={18} className="text-crimson-600" />
           <span className="min-w-0 flex-1">
-            <span className="block text-[12px] font-semibold text-crimson-600">Part of a Trip Circle</span>
+            <span className="block text-[12px] font-semibold text-crimson-600">
+              {ride.weekly ? "Weekly circle" : "Part of a Trip Circle"}
+            </span>
             <span className="block truncate text-[15px] font-semibold">{ride.circle.title}</span>
           </span>
           <ChevronRight size={18} className="text-crimson-600" />
@@ -146,7 +161,7 @@ function Riders({ users }: { users: User[] }) {
 
 // ---------- Passenger ----------
 
-function PassengerView({ ride }: { ride: RideDetail }) {
+function PassengerView({ ride, me }: { ride: RideDetail; me: User }) {
   const [busy, setBusy] = useState(false);
   const [thanks, setThanks] = useState<"after" | "tip" | null>(null);
   const req = ride.myRequest;
@@ -203,9 +218,9 @@ function PassengerView({ ride }: { ride: RideDetail }) {
             <div className="animate-rise mb-5 flex items-center gap-3 rounded-2xl bg-ok-50 p-4">
               <CheckCircle2 size={28} className="text-ok" />
               <div>
-                <p className="text-[17px] font-bold text-ok">Booking confirmed</p>
+                <p className="text-[17px] font-bold text-ok">{ride.weekly ? "You're signed up" : "Booking confirmed"}</p>
                 <p className="text-[14px] text-ink-2">
-                  Meet {driver} at {ride.fromDetail}.
+                  {ride.weekly ? `Your seat with ${driver} every week. Skip any week below.` : `Meet ${driver} at ${ride.fromDetail}.`}
                 </p>
               </div>
             </div>
@@ -217,12 +232,18 @@ function PassengerView({ ride }: { ride: RideDetail }) {
             <DriverCard driver={ride.driver} />
             {ride.note && <p className="mt-4 rounded-2xl bg-fill px-4 py-3 text-[15px] leading-snug text-ink-2">“{ride.note}”</p>}
           </div>
-
-          {req && (
-            <Card className="mt-6 p-4 pb-1">
-              <p className="mb-3 text-[13px] font-semibold text-ink-2">Your trip</p>
-              <Timeline ride={ride} request={req} />
-            </Card>
+          {ride.weekly ? (
+            <div className="mt-6">
+              <p className="mb-2 text-[13px] font-semibold text-ink-2">Next few weeks</p>
+              <WeekList ride={ride} me={me} canCover={false} />
+            </div>
+          ) : (
+            req && (
+              <Card className="mt-6 p-4 pb-1">
+                <p className="mb-3 text-[13px] font-semibold text-ink-2">Your trip</p>
+                <Timeline ride={ride} request={req} />
+              </Card>
+            )
           )}
 
           {rode && !ride.completed && !req.feedbackAt && (
@@ -253,7 +274,7 @@ function PassengerView({ ride }: { ride: RideDetail }) {
           !ride.completed &&
           (ride.seatsLeft > 0 ? (
             <Button size="lg" disabled={busy} onClick={() => run(() => requestSeat(ride.id), `Request sent to ${driver}`)}>
-              Request a seat · {price(ride.pricePerSeat)}
+              {ride.weekly ? "Sign up for every week" : `Request a seat · ${price(ride.pricePerSeat)}`}
             </Button>
           ) : (
             <Button size="lg" disabled>
@@ -267,7 +288,7 @@ function PassengerView({ ride }: { ride: RideDetail }) {
         )}
         {rode && !ride.completed && (
           <Button size="lg" variant="secondary" disabled={busy} onClick={() => run(() => cancelRequest(req.id), "Booking cancelled")}>
-            Cancel booking
+            {ride.weekly ? "Leave weekly ride" : "Cancel booking"}
           </Button>
         )}
         {needsThanks && (
@@ -294,7 +315,7 @@ function PassengerView({ ride }: { ride: RideDetail }) {
 
 // ---------- Driver ----------
 
-function DriverView({ ride }: { ride: RideDetail }) {
+function DriverView({ ride, me }: { ride: RideDetail; me: User }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const pending = ride.requests.filter((r) => r.status === "pending");
@@ -341,6 +362,14 @@ function DriverView({ ride }: { ride: RideDetail }) {
             {ride.completed ? "You drove" : "You're driving"}
           </p>
           <TripSummary ride={ride} />
+
+          {ride.weekly && (
+            <div className="mt-7">
+              <h2 className="mb-1 text-[20px] font-bold tracking-tight">Next few weeks</h2>
+              <p className="mb-3 text-[14px] text-ink-2">Can't make a week? Skip it, and other members can cover.</p>
+              <WeekList ride={ride} me={me} canCover={false} />
+            </div>
+          )}
 
           {!ride.completed && (
             <div className="mt-7">
@@ -409,7 +438,7 @@ function DriverView({ ride }: { ride: RideDetail }) {
         </div>
       </BottomSheet>
 
-      {!ride.completed && riders.length > 0 && (
+      {!ride.completed && !ride.weekly && riders.length > 0 && (
         <ActionBar spacer={false}>
           <Button size="lg" variant={confirming ? "primary" : "secondary"} disabled={!!busy} onClick={complete}>
             <Flag size={18} /> {confirming ? "Tap again to complete" : "Complete ride"}

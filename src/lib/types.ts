@@ -39,6 +39,7 @@ export type Ride = {
   priceReason?: string; // required when the price is well above the gas estimate
   note?: string;
   circleId?: string | null;
+  weekly?: boolean; // repeats on its weekly circle's schedule; departAt is the first ride
   status?: RideStatus; // missing = "open"
   completedAt?: string;
   createdAt: string;
@@ -67,16 +68,32 @@ export type SeatRequest = {
   feedbackAt?: string;
 };
 
-export type CircleCategory = "game" | "airport" | "holiday" | "event";
+export type CircleCategory = "game" | "airport" | "holiday" | "event" | "weekly";
 
 export type Circle = {
   id: string;
   title: string;
   category: CircleCategory;
   destination: string;
-  date: string; // YYYY-MM-DD
+  date: string; // YYYY-MM-DD; for weekly circles, the first day
   description?: string;
   createdBy: string;
+  createdAt: string;
+  // Weekly circles only
+  pickup?: string; // "Dunham College"
+  days?: number[]; // 0 = Sunday … 6 = Saturday
+  time?: string; // "08:40"
+  returnTime?: string; // "10:20"
+  endDate?: string; // YYYY-MM-DD
+};
+
+/** One-week exception on a weekly ride: someone skips, or a member covers for the driver. */
+export type WeekChange = {
+  id: string;
+  rideId: string;
+  date: string; // YYYY-MM-DD of that week's ride
+  userId: string;
+  kind: "skip" | "cover";
   createdAt: string;
 };
 
@@ -97,6 +114,19 @@ export type RideView = Ride & {
   miles: number; // distance + planned stops
   gasEstimate: number | null; // suggested gas share per seat; null = short trip, always free
   aboveEstimate: boolean;
+  schedule?: string; // weekly rides: "Every Wed · 8:40 AM"
+  nextAt?: string; // weekly rides: next ride time (ISO)
+};
+
+/** One date of a weekly ride, with that week's driver and riders. */
+export type WeekView = {
+  date: string; // YYYY-MM-DD
+  at: string; // ISO
+  driver: User | null; // null = regular driver skipped and nobody covered
+  covering: boolean; // driver is a member covering for the regular driver
+  riders: User[];
+  iSkip: boolean;
+  iCover: boolean;
 };
 
 export type RideDetail = RideView & {

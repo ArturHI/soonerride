@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react";
 import { backend, type Op } from "./backend";
 import { ABOVE_ESTIMATE, arrival, firstName, gasEstimate, LONG_TRIP_MILES, milesTo } from "./format";
+import { isOver, occurrences, scheduleLabel, shortDate, ymd } from "./schedule";
 import { AVATAR_COLORS, seed, type DB } from "./seed";
 import { toast } from "./toast";
 import type {
@@ -21,6 +22,8 @@ import type {
   SeatRequest,
   TipMethod,
   User,
+  WeekChange,
+  WeekView,
 } from "./types";
 
 const SESSION_KEY = "soonerride:session";
@@ -96,6 +99,18 @@ function announce(prev: DB, next: DB) {
     if (ride.driverId === myId && r.status === "pending") toast(`${name(r.passengerId)} requested a seat to ${ride.to}`, href);
     if (r.passengerId === myId && r.status === "accepted") toast(`${name(ride.driverId)} accepted your seat request`, href);
     if (r.passengerId === myId && r.status === "declined") toast(`${name(ride.driverId)} declined your request`, href);
+  }
+  const seen = new Set(prev.changes.map((x) => x.id));
+  for (const x of next.changes) {
+    if (seen.has(x.id) || x.userId === myId) continue;
+    const ride = next.rides.find((r) => r.id === x.rideId);
+    if (!ride) continue;
+    const riding = next.requests.some((q) => q.rideId === ride.id && q.passengerId === myId && q.status === "accepted");
+    const href = `/rides/${ride.id}`;
+    const day = shortDate(x.date);
+    if (x.kind === "skip" && x.userId === ride.driverId && riding) toast(`${name(x.userId)} can't drive ${day}`, href);
+    else if (x.kind === "skip" && ride.driverId === myId) toast(`${name(x.userId)} is skipping ${day}`, href);
+    else if (x.kind === "cover" && (riding || ride.driverId === myId)) toast(`${name(x.userId)} will drive ${day}`, href);
   }
   for (const ride of next.rides) {
     if (ride.status !== "completed" || ridesBefore.get(ride.id)?.status === "completed") continue;
@@ -245,6 +260,7 @@ function toView(ride: Ride): RideView {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
   const miles = rideMiles(ride);
   const gas = (ride.distanceMiles ?? milesTo(ride.to) ?? 0) >= LONG_TRIP_MILES ? gasEstimate(miles, ride.seatsTotal) : null;
+  const circle = circleOf(ride);
   return {
     ...ride,
     driver: d.users.find((u) => u.id === ride.driverId)!,
@@ -255,7 +271,14 @@ function toView(ride: Ride): RideView {
     miles,
     gasEstimate: gas,
     aboveEstimate: !!(gas && ride.pricePerSeat && ride.pricePerSeat >= gas * ABOVE_ESTIMATE),
+    schedule: circle ? scheduleLabel(circle) : undefined,
+    nextAt: circle ? occurrences(circle, 1)[0]?.toISOString() : undefined,
   };
+}
+
+/** The weekly circle a repeating ride follows. */
+function circleOf(ride: Ride) {
+  return ride.weekly ? db().circles.find((c) => c.id === ride.circleId) : undefined;
 }
 
 export function rideMiles(ride: Pick<Ride, "distanceMiles" | "extraMiles" | "to">) {
@@ -265,11 +288,18 @@ export function rideMiles(ride: Pick<Ride, "distanceMiles" | "extraMiles" | "to"
 // Rides finish when the driver taps Complete, or automatically 3 hours after the estimated arrival.
 const AUTO_COMPLETE_MS = 3 * 60 * 60 * 1000;
 function isCompleted(r: Ride) {
-  return r.status === "completed" || Date.now() > new Date(arrival(r.departAt, rideMiles(r))).getTime() + AUTO_COMPLETE_MS;
+  if (r.status === "completed") return true;
+  // Weekly rides run until their circle's end date.
+  if (r.weekly) return isOver(circleOf(r) ?? { date: "", days: [] });
+  return Date.now() > new Date(arrival(r.departAt, rideMiles(r))).getTime() + AUTO_COMPLETE_MS;
 }
 
-const upcoming = (r: Ride) => !isCompleted(r) && new Date(r.departAt).getTime() > Date.now() - 60 * 60 * 1000;
-const byDepart = (a: Ride, b: Ride) => a.departAt.localeCompare(b.departAt);
+const upcoming = (r: Ride) => !isCompleted(r) && (r.weekly || new Date(r.departAt).getTime() > Date.now() - 60 * 60 * 1000);
+const nextTime = (r: Ride) => {
+  const c = circleOf(r);
+  return (c && occurrences(c, 1)[0]?.toISOString()) || r.departAt;
+};
+const byDepart = (a: Ride, b: Ride) => nextTime(a).localeCompare(nextTime(b));
 
 function sameDay(iso: string, ymd: string) {
   const d = new Date(iso);
@@ -281,7 +311,7 @@ export async function searchRides(opts: { q?: string; date?: string } = {}) {
   await ready();
   const q = (opts.q ?? "").trim().toLowerCase();
   return db()
-    .rides.filter(upcoming)
+    .rides.filter((r) => upcoming(r) && !r.weekly) // weekly rides live in their circles
     .filter((r) => !q || `${r.to} ${r.toDetail}`.toLowerCase().includes(q))
     .filter((r) => !opts.date || sameDay(r.departAt, opts.date))
     .sort(byDepart)
@@ -422,6 +452,104 @@ export async function sendThanks(requestId: string, t: Thanks) {
   await commit(ops);
 }
 
+// ---------- Weekly rides ----------
+
+function weekViews(ride: Ride, count: number): WeekView[] {
+  const d = db();
+  const circle = circleOf(ride);
+  if (!circle) return [];
+  const myId = sessionId();
+  const user = (id: string) => d.users.find((u) => u.id === id)!;
+  const riders = d.requests.filter((q) => q.rideId === ride.id && q.status === "accepted").map((q) => user(q.passengerId));
+  return occurrences(circle, count).map((at) => {
+    const date = ymd(at);
+    const changes = d.changes.filter((x) => x.rideId === ride.id && x.date === date);
+    const skipped = (id: string) => changes.some((x) => x.kind === "skip" && x.userId === id);
+    const cover = changes.find((x) => x.kind === "cover");
+    const driverOff = skipped(ride.driverId);
+    return {
+      date,
+      at: at.toISOString(),
+      driver: !driverOff ? user(ride.driverId) : cover ? user(cover.userId) : null,
+      covering: driverOff && !!cover,
+      riders: riders.filter((u) => !skipped(u.id)),
+      iSkip: !!myId && skipped(myId),
+      iCover: cover?.userId === myId,
+    };
+  });
+}
+
+export async function getWeeks(rideId: string, count = 4) {
+  await ready();
+  const ride = db().rides.find((r) => r.id === rideId);
+  return ride ? weekViews(ride, count) : [];
+}
+
+/** Skip (or un-skip) one week. If the regular driver comes back, any cover is dropped. */
+export async function setSkip(rideId: string, date: string, skip: boolean) {
+  await ready();
+  const user = requireMe();
+  const d = db();
+  const ride = d.rides.find((r) => r.id === rideId);
+  if (!ride) throw new Error("Ride not found");
+  const mine = (x: WeekChange) => x.rideId === rideId && x.date === date && x.kind === "skip" && x.userId === user.id;
+  const ops: Op[] = [];
+  if (skip && !d.changes.some(mine)) {
+    const change: WeekChange = { id: uid("w"), rideId, date, userId: user.id, kind: "skip", createdAt: nowISO() };
+    d.changes.push(change);
+    ops.push({ kind: "upsert", table: "changes", row: change });
+  }
+  if (!skip) {
+    const drop = d.changes.filter(
+      (x) => mine(x) || (ride.driverId === user.id && x.rideId === rideId && x.date === date && x.kind === "cover"),
+    );
+    d.changes = d.changes.filter((x) => !drop.includes(x));
+    ops.push(...drop.map((x) => ({ kind: "delete" as const, table: "changes" as const, match: { id: x.id } })));
+  }
+  if (ops.length) await commit(ops);
+}
+
+/** A member with a car drives a week the regular driver skipped. */
+export async function setCover(rideId: string, date: string, cover: boolean) {
+  await ready();
+  const user = requireMe();
+  const d = db();
+  const existing = d.changes.find((x) => x.rideId === rideId && x.date === date && x.kind === "cover");
+  if (cover) {
+    if (!user.car) throw new Error("Add your car in Offer a ride first");
+    if (existing) throw new Error("Someone's already covering that week");
+    const change: WeekChange = { id: uid("w"), rideId, date, userId: user.id, kind: "cover", createdAt: nowISO() };
+    d.changes.push(change);
+    await commit([{ kind: "upsert", table: "changes", row: change }]);
+  } else if (existing?.userId === user.id) {
+    d.changes = d.changes.filter((x) => x !== existing);
+    await commit([{ kind: "delete", table: "changes", match: { id: existing.id } }]);
+  }
+}
+
+/** Weekly rides I'm part of, with the next week I'm actually going. */
+export async function myWeekly() {
+  await ready();
+  const myId = sessionId();
+  const d = db();
+  return d.rides
+    .filter((r) => r.weekly && !isCompleted(r))
+    .flatMap((r) => {
+      const role =
+        r.driverId === myId
+          ? "driving"
+          : d.requests.some((q) => q.rideId === r.id && q.passengerId === myId && q.status === "accepted")
+            ? "riding"
+            : d.changes.some((x) => x.rideId === r.id && x.userId === myId && x.kind === "cover")
+              ? "covering"
+              : null;
+      if (!role) return [];
+      const week = weekViews(r, 8).find((w) => (role === "covering" ? w.iCover : !w.iSkip));
+      return week ? [{ ride: toView(r), week, role }] : [];
+    })
+    .sort((a, b) => a.week.at.localeCompare(b.week.at));
+}
+
 export async function myTrips() {
   await ready();
   const myId = sessionId();
@@ -476,7 +604,7 @@ export async function listCircles(category?: CircleCategory) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   return db()
-    .circles.filter((c) => new Date(c.date + "T23:59") >= today)
+    .circles.filter((c) => (c.category === "weekly" ? !isOver(c) : new Date(c.date + "T23:59") >= today))
     .filter((c) => !category || c.category === category)
     .sort((a, b) => a.date.localeCompare(b.date))
     .map(circleView);
@@ -497,7 +625,10 @@ export async function getCircle(id: string): Promise<CircleDetail | null> {
   };
 }
 
-export type NewCircle = Pick<Circle, "title" | "category" | "destination" | "date" | "description">;
+export type NewCircle = Pick<
+  Circle,
+  "title" | "category" | "destination" | "date" | "description" | "pickup" | "days" | "time" | "returnTime" | "endDate"
+>;
 
 export async function createCircle(input: NewCircle) {
   await ready();

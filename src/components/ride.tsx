@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Check, ShieldCheck, Star, X } from "lucide-react";
+import { Check, Repeat, ShieldCheck, Star, X } from "lucide-react";
 import { arrival, driveMinutes, duration, price, timeLabel, when } from "@/lib/format";
 import type { RequestStatus, RideView, SeatRequest, User } from "@/lib/types";
 import { Avatar, Card, Pill, cx, type Tone } from "./ui";
@@ -66,7 +66,15 @@ export function RideCard({ ride, showStatus = true, mine }: { ride: RideView; sh
     <Link href={`/rides/${ride.id}`} className="block active:scale-[0.99] transition-transform">
       <Card className="p-4">
         <div className="mb-3 flex items-center justify-between gap-2">
-          <p className="text-[14px] font-semibold text-ink-2">{when(ride.departAt)}</p>
+          <p className="flex min-w-0 items-center gap-1.5 truncate text-[14px] font-semibold text-ink-2">
+            {ride.schedule ? (
+              <>
+                <Repeat size={14} className="shrink-0" /> {ride.schedule.replace("Every ", "")}
+              </>
+            ) : (
+              when(ride.departAt)
+            )}
+          </p>
           <p className="text-[17px] font-bold tabular-nums">
             {price(ride.pricePerSeat)}
             {ride.pricePerSeat ? <span className="text-[13px] font-medium text-ink-3"> gas share</span> : null}
