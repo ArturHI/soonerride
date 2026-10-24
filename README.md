@@ -1,36 +1,37 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SoonerRide
 
-## Getting Started
-
-First, run the development server:
+University-verified carpooling for OU students. Next.js 15 + Tailwind v4.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev     # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## How data works
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+All screens talk to `src/lib/data.ts` only. Today it stores everything in the browser
+(localStorage) with seed data from `src/lib/seed.ts`. Every function is async and returns
+plain objects, so moving to Supabase means re-implementing those functions with
+`supabase-js` — no screen changes. `supabase/schema.sql` matches `src/lib/types.ts`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+When switching, call `notify()` from a Supabase realtime subscription so open screens refresh.
 
-## Learn More
+## Demo script
 
-To learn more about Next.js, take a look at the following resources:
+Tip: open two browser tabs. Each tab can be signed in as a different student
+(Profile → Demo accounts), and changes in one tab show up in the other right away.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. Profile → **Reset demo data**.
+2. Circles → **New** → "OU football game in Dallas", Game day, Dallas, pick a date.
+3. Switch to Chris, Ava, Jordan → open the circle → **I'm going** (4 going).
+4. Switch to Maya → circle → **Offer seats** → 3 seats → **Post ride**.
+5. Switch to Chris → circle → the ride → **Request a seat**.
+6. Switch to Maya → Trips shows a badge → open the ride → **Accept**.
+7. Switch to Chris → ride shows **Booking confirmed** with the trip timeline.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Verification codes are shown in a fake "OU Mail" banner — tap it to fill the code.
+Judges can tap **Try a demo account** on the welcome screen to skip sign-in.
 
-## Deploy on Vercel
+## Deploy
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Push to GitHub and import into Vercel. No environment variables needed yet.
