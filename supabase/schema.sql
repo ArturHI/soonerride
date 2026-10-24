@@ -139,3 +139,7 @@ begin
 end $$;
 
 notify pgrst, 'reload schema';
+
+-- v4: phone numbers for Text / Call between confirmed riders and drivers.
+alter table users add column if not exists phone text;
+notify pgrst, 'reload schema';

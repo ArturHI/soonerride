@@ -183,7 +183,7 @@ export async function findUserByEmail(email: string) {
   return db().users.find((u) => u.email.toLowerCase() === email.trim().toLowerCase()) ?? null;
 }
 
-export async function signIn(email: string, name?: string) {
+export async function signIn(email: string, name?: string, phone?: string) {
   if (!isOUEmail(email)) throw new Error("Use your @ou.edu email");
   let user = await findUserByEmail(email);
   if (!user) {
@@ -196,6 +196,7 @@ export async function signIn(email: string, name?: string) {
       tripCount: 0,
       avatarColor: AVATAR_COLORS[d.users.length % AVATAR_COLORS.length],
       car: null,
+      phone: cleanPhone(phone),
     };
     d.users.push(user);
     await commit([{ kind: "upsert", table: "users", row: user }]);
@@ -215,6 +216,20 @@ export async function signOut() {
 export async function listUsers() {
   await ready();
   return [...db().users];
+}
+
+export function cleanPhone(phone?: string) {
+  const digits = (phone ?? "").replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
+  return digits.length === 10 ? digits : undefined;
+}
+
+export async function updateMyPhone(phone: string) {
+  await ready();
+  const u = requireMe();
+  const clean = cleanPhone(phone);
+  if (phone.trim() && !clean) throw new Error("Enter a 10-digit US phone number");
+  u.phone = clean;
+  await commit([{ kind: "upsert", table: "users", row: { ...u, phone: clean ?? null } }]);
 }
 
 export async function updateMyPayments(handles: Pick<User, "venmo" | "cashapp" | "zelle">) {

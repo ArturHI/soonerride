@@ -18,6 +18,7 @@ export default function Welcome() {
   const [sent, setSent] = useState("");
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
   const [banner, setBanner] = useState(false);
   const codeRef = useRef<HTMLInputElement>(null);
 
@@ -58,7 +59,7 @@ export default function Welcome() {
 
   async function finish() {
     if (!name.trim()) return;
-    await signIn(email, name);
+    await signIn(email, name, phone);
     router.replace("/");
   }
 
@@ -223,6 +224,16 @@ export default function Welcome() {
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
+          <Input
+            className="mt-3 h-14 text-[18px]"
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
+            placeholder="Phone (optional)"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+          />
+          <p className="mt-2 text-[13px] text-ink-3">Only shared with people you have a confirmed ride with, so you can text at pickup.</p>
           <div className="mt-auto pb-2">
             <Button size="lg" type="submit" disabled={!name.trim()}>
               Get started

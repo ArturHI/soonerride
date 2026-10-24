@@ -17,6 +17,7 @@ export type User = {
   tripCount: number;
   car?: Car | null;
   avatarColor: string; // hex, used behind initials
+  phone?: string; // digits only; shown only to people with a confirmed ride together
   // Where riders can send a thank-you tip. Usernames / email / phone, no symbols.
   venmo?: string;
   cashapp?: string;

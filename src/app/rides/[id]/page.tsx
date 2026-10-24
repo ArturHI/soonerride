@@ -12,6 +12,7 @@ import { DriverCard, Route, SeatDots, Timeline } from "@/components/ride";
 import { BottomSheet, RouteMap } from "@/components/map";
 import { ThanksSheet } from "@/components/thanks";
 import { WeekList } from "@/components/weekly";
+import { ContactButtons } from "@/components/contact";
 import { returnLabel } from "@/lib/schedule";
 import type { RideDetail, User } from "@/lib/types";
 
@@ -230,6 +231,11 @@ function PassengerView({ ride, me }: { ride: RideDetail; me: User }) {
 
           <div className="mt-6 border-t border-line pt-5">
             <DriverCard driver={ride.driver} />
+            {rode && !ride.completed && (
+              <div className="mt-4">
+                <ContactButtons user={ride.driver} />
+              </div>
+            )}
             {ride.note && <p className="mt-4 rounded-2xl bg-fill px-4 py-3 text-[15px] leading-snug text-ink-2">“{ride.note}”</p>}
           </div>
           {ride.weekly ? (
@@ -427,6 +433,7 @@ function DriverView({ ride, me }: { ride: RideDetail; me: User }) {
                           <CheckCircle2 size={15} /> {ride.completed ? "Rode with you" : "Confirmed"}
                         </span>
                       )}
+                      {!ride.completed && <ContactButtons user={r.passenger} compact />}
                     </div>
                     {r.thanksNote && <p className="mt-2 ml-12 text-[14px] text-ink-2">“{r.thanksNote}”</p>}
                   </div>

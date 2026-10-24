@@ -48,6 +48,7 @@ export function seed(): DB {
   const users: User[] = [
     {
       id: "u_maya",
+      phone: "4055550101", // fictional 555 number
       name: "Maya Patel",
       email: "maya.patel@ou.edu",
       major: "Petroleum Eng.",
@@ -61,6 +62,7 @@ export function seed(): DB {
     },
     {
       id: "u_sam",
+      phone: "4055550102", // fictional 555 number
       name: "Sam Rivera",
       email: "sam.rivera@ou.edu",
       major: "Finance",
@@ -73,6 +75,7 @@ export function seed(): DB {
     },
     {
       id: "u_jordan",
+      phone: "4055550103", // fictional 555 number
       name: "Jordan Lee",
       email: "jordan.lee@ou.edu",
       major: "Journalism",
@@ -85,6 +88,7 @@ export function seed(): DB {
     },
     {
       id: "u_chris",
+      phone: "4055550104", // fictional 555 number
       name: "Chris Nguyen",
       email: "chris.nguyen@ou.edu",
       major: "Computer Science",
@@ -95,6 +99,7 @@ export function seed(): DB {
     },
     {
       id: "u_ava",
+      phone: "4055550105", // fictional 555 number
       name: "Ava Brooks",
       email: "ava.brooks@ou.edu",
       major: "Nursing",
@@ -108,6 +113,7 @@ export function seed(): DB {
     },
     {
       id: "u_noah",
+      phone: "4055550106", // fictional 555 number
       name: "Noah Kim",
       email: "noah.kim@ou.edu",
       major: "Architecture",
