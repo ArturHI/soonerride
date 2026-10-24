@@ -1,36 +1,87 @@
 "use client";
 
 // The only module the UI talks to for data. Every function is async and
-// returns plain objects, matching what a Supabase query would give back.
-// To move to Supabase, re-implement these functions with supabase-js and
-// call notify() from a realtime subscription; screens don't need to change.
+// returns plain objects. Data is held in memory, loaded from and saved to the
+// backend in backend.ts (Supabase when configured, else this browser).
 
 import { useEffect, useState } from "react";
+import { backend, type Op } from "./backend";
+import { firstName } from "./format";
 import { AVATAR_COLORS, seed, type DB } from "./seed";
+import { toast } from "./toast";
 import type { Car, Circle, CircleCategory, CircleDetail, CircleView, Ride, RideDetail, RideView, SeatRequest, User } from "./types";
 
-const DB_KEY = "soonerride:db:v1";
 const SESSION_KEY = "soonerride:session";
 
 let cache: DB | null = null;
+let loading: Promise<void> | null = null;
 const listeners = new Set<() => void>();
 
-function db(): DB {
-  if (cache) return cache;
-  try {
-    const raw = localStorage.getItem(DB_KEY);
-    cache = raw ? (JSON.parse(raw) as DB) : seed();
-  } catch {
-    cache = seed();
-  }
-  return cache;
+export const isShared = backend.shared;
+
+/** Loads data once; every exported function awaits this first. */
+function ready() {
+  loading ??= (async () => {
+    let data: DB | null = null;
+    try {
+      data = await backend.load();
+    } catch (e) {
+      console.error("Could not load data", e);
+      toast("Can't reach the server. Check your connection.");
+    }
+    if (!data) {
+      data = seed();
+      await backend.replaceAll(data).catch((e) => console.error("Could not seed", e));
+    }
+    cache = data;
+    backend.watch(refresh);
+  })();
+  return loading;
 }
 
-function commit() {
-  try {
-    localStorage.setItem(DB_KEY, JSON.stringify(cache));
-  } catch {}
+function db(): DB {
+  return cache!;
+}
+
+/** Save local changes. On failure, reload the real data and surface the error. */
+async function commit(ops: Op[]) {
   notify();
+  try {
+    await backend.apply(ops, db());
+  } catch (e) {
+    await refresh();
+    throw new Error(`Couldn't save: ${(e as Error).message}`);
+  }
+}
+
+/** Another device or tab changed something: reload and tell this user what's new for them. */
+async function refresh() {
+  try {
+    const next = await backend.load();
+    if (!next || !cache) return;
+    const prev = cache;
+    cache = next;
+    announce(prev, next);
+    notify();
+  } catch (e) {
+    console.error("Refresh failed", e);
+  }
+}
+
+function announce(prev: DB, next: DB) {
+  const myId = sessionId();
+  if (!myId) return;
+  const before = new Map(prev.requests.map((r) => [r.id, r]));
+  const name = (id: string) => firstName(next.users.find((u) => u.id === id)?.name ?? "Someone");
+  for (const r of next.requests) {
+    const ride = next.rides.find((x) => x.id === r.rideId);
+    const old = before.get(r.id);
+    if (!ride || old?.status === r.status) continue;
+    const href = `/rides/${ride.id}`;
+    if (ride.driverId === myId && r.status === "pending") toast(`${name(r.passengerId)} requested a seat to ${ride.to}`, href);
+    if (r.passengerId === myId && r.status === "accepted") toast(`${name(ride.driverId)} accepted your seat request`, href);
+    if (r.passengerId === myId && r.status === "declined") toast(`${name(ride.driverId)} declined your request`, href);
+  }
 }
 
 export function notify() {
@@ -42,16 +93,6 @@ export function subscribe(fn: () => void) {
   return () => {
     listeners.delete(fn);
   };
-}
-
-// Another tab changed the data (e.g. the "driver" tab accepted a request).
-if (typeof window !== "undefined") {
-  window.addEventListener("storage", (e) => {
-    if (e.key === DB_KEY) {
-      cache = null;
-      notify();
-    }
-  });
 }
 
 const uid = (p: string) => `${p}_${Math.random().toString(36).slice(2, 9)}`;
@@ -94,6 +135,7 @@ function requireMe(): User {
 }
 
 export async function getMe() {
+  await ready();
   return me();
 }
 
@@ -102,6 +144,7 @@ export function isOUEmail(email: string) {
 }
 
 export async function findUserByEmail(email: string) {
+  await ready();
   return db().users.find((u) => u.email.toLowerCase() === email.trim().toLowerCase()) ?? null;
 }
 
@@ -120,7 +163,7 @@ export async function signIn(email: string, name?: string) {
       car: null,
     };
     d.users.push(user);
-    commit();
+    await commit([{ kind: "upsert", table: "users", row: user }]);
   }
   setSessionId(user.id);
   return user;
@@ -135,22 +178,27 @@ export async function signOut() {
 }
 
 export async function listUsers() {
+  await ready();
   return [...db().users];
 }
 
 export async function updateMyCar(car: Car) {
+  await ready();
   const u = requireMe();
   u.car = car;
-  commit();
+  await commit([{ kind: "upsert", table: "users", row: u }]);
 }
 
 export async function resetDemo() {
+  await ready();
   const keep = me();
-  cache = seed();
-  if (keep && !cache.users.some((u) => u.id === keep.id)) {
-    cache.users.push({ ...keep, car: keep.car ?? null, tripCount: 0 });
+  const next = seed();
+  if (keep && !next.users.some((u) => u.id === keep.id)) {
+    next.users.push({ ...keep, car: keep.car ?? null, tripCount: 0 });
   }
-  commit();
+  cache = next;
+  notify();
+  await backend.replaceAll(next);
 }
 
 // ---------- Rides ----------
@@ -187,6 +235,7 @@ function sameDay(iso: string, ymd: string) {
 }
 
 export async function searchRides(opts: { q?: string; date?: string } = {}) {
+  await ready();
   const q = (opts.q ?? "").trim().toLowerCase();
   return db()
     .rides.filter(upcoming)
@@ -197,6 +246,7 @@ export async function searchRides(opts: { q?: string; date?: string } = {}) {
 }
 
 export async function getRide(id: string): Promise<RideDetail | null> {
+  await ready();
   const d = db();
   const ride = d.rides.find((r) => r.id === id);
   if (!ride) return null;
@@ -217,15 +267,17 @@ export async function getRide(id: string): Promise<RideDetail | null> {
 export type NewRide = Omit<Ride, "id" | "driverId" | "createdAt">;
 
 export async function createRide(input: NewRide) {
+  await ready();
   const user = requireMe();
   if (input.seatsTotal < 1) throw new Error("Add at least one seat");
   const ride: Ride = { ...input, id: uid("r"), driverId: user.id, createdAt: nowISO() };
   db().rides.push(ride);
-  commit();
+  await commit([{ kind: "upsert", table: "rides", row: ride }]);
   return ride;
 }
 
 export async function requestSeat(rideId: string, message?: string) {
+  await ready();
   const user = requireMe();
   const d = db();
   const ride = d.rides.find((r) => r.id === rideId);
@@ -247,20 +299,22 @@ export async function requestSeat(rideId: string, message?: string) {
     updatedAt: nowISO(),
   };
   d.requests.push(req);
-  commit();
+  await commit([{ kind: "upsert", table: "requests", row: req }]);
   return req;
 }
 
 export async function cancelRequest(requestId: string) {
+  await ready();
   const user = requireMe();
   const req = db().requests.find((r) => r.id === requestId && r.passengerId === user.id);
   if (!req) return;
   req.status = "cancelled";
   req.updatedAt = nowISO();
-  commit();
+  await commit([{ kind: "upsert", table: "requests", row: req }]);
 }
 
 export async function respondToRequest(requestId: string, decision: "accepted" | "declined") {
+  await ready();
   const user = requireMe();
   const d = db();
   const req = d.requests.find((r) => r.id === requestId);
@@ -271,10 +325,11 @@ export async function respondToRequest(requestId: string, decision: "accepted" |
   }
   req.status = decision;
   req.updatedAt = nowISO();
-  commit();
+  await commit([{ kind: "upsert", table: "requests", row: req }]);
 }
 
 export async function myTrips() {
+  await ready();
   const myId = sessionId();
   const d = db();
   const driving = d.rides
@@ -291,6 +346,7 @@ export async function myTrips() {
 }
 
 export async function pendingForMe() {
+  await ready();
   const myId = sessionId();
   const d = db();
   const mine = new Set(d.rides.filter((r) => r.driverId === myId && upcoming(r)).map((r) => r.id));
@@ -313,6 +369,7 @@ function circleView(c: Circle): CircleView {
 }
 
 export async function listCircles(category?: CircleCategory) {
+  await ready();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   return db()
@@ -323,6 +380,7 @@ export async function listCircles(category?: CircleCategory) {
 }
 
 export async function getCircle(id: string): Promise<CircleDetail | null> {
+  await ready();
   const d = db();
   const c = d.circles.find((x) => x.id === id);
   if (!c) return null;
@@ -339,29 +397,37 @@ export async function getCircle(id: string): Promise<CircleDetail | null> {
 export type NewCircle = Pick<Circle, "title" | "category" | "destination" | "date" | "description">;
 
 export async function createCircle(input: NewCircle) {
+  await ready();
   const user = requireMe();
   const c: Circle = { ...input, id: uid("c"), createdBy: user.id, createdAt: nowISO() };
+  const member = { circleId: c.id, userId: user.id, joinedAt: nowISO() };
   const d = db();
   d.circles.push(c);
-  d.members.push({ circleId: c.id, userId: user.id, joinedAt: nowISO() });
-  commit();
+  d.members.push(member);
+  await commit([
+    { kind: "upsert", table: "circles", row: c },
+    { kind: "upsert", table: "members", row: member },
+  ]);
   return c;
 }
 
 export async function joinCircle(id: string) {
+  await ready();
   const user = requireMe();
   const d = db();
   if (!d.members.some((m) => m.circleId === id && m.userId === user.id)) {
-    d.members.push({ circleId: id, userId: user.id, joinedAt: nowISO() });
-    commit();
+    const member = { circleId: id, userId: user.id, joinedAt: nowISO() };
+    d.members.push(member);
+    await commit([{ kind: "upsert", table: "members", row: member }]);
   }
 }
 
 export async function leaveCircle(id: string) {
+  await ready();
   const user = requireMe();
   const d = db();
   d.members = d.members.filter((m) => !(m.circleId === id && m.userId === user.id));
-  commit();
+  await commit([{ kind: "delete", table: "members", match: { circle_id: id, user_id: user.id } }]);
 }
 
 // ---------- React hook ----------

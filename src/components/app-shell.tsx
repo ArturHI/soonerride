@@ -5,7 +5,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { CalendarCheck, House, Search, UsersRound } from "lucide-react";
 import { getMe, pendingForMe, useQuery } from "@/lib/data";
-import { onToast } from "@/lib/toast";
+import { onToast, type Toast } from "@/lib/toast";
+import { LogoMark } from "./logo";
 import { cx } from "./ui";
 
 const TABS = [
@@ -72,14 +73,30 @@ function TabBar({ path }: { path: string }) {
 }
 
 function Toaster() {
-  const [t, setT] = useState<{ id: number; text: string } | null>(null);
+  const [t, setT] = useState<Toast | null>(null);
   useEffect(() => onToast(setT), []);
   if (!t) return null;
   return (
     <div className="pointer-events-none fixed inset-x-0 top-0 z-50 mx-auto flex max-w-[440px] justify-center px-4 pt-[max(env(safe-area-inset-top),12px)]">
-      <div key={t.id} className="glass animate-rise rounded-full px-5 py-3 text-[15px] font-semibold text-ink">
-        {t.text}
-      </div>
+      {t.href ? (
+        <Link
+          key={t.id}
+          href={t.href}
+          className="glass animate-rise pointer-events-auto flex w-full items-center gap-3 rounded-[22px] p-3 active:scale-[0.99]"
+        >
+          <LogoMark size={36} />
+          <span className="min-w-0 flex-1">
+            <span className="flex justify-between text-[13px] font-semibold">
+              SoonerRide <span className="font-normal text-ink-3">now</span>
+            </span>
+            <span className="block text-[15px] leading-snug font-medium text-ink">{t.text}</span>
+          </span>
+        </Link>
+      ) : (
+        <div key={t.id} className="glass animate-rise rounded-full px-5 py-3 text-[15px] font-semibold text-ink">
+          {t.text}
+        </div>
+      )}
     </div>
   );
 }
